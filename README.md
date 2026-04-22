@@ -22,36 +22,31 @@ TrenchScope brings **token discovery**, **token context**, **wallet inspection**
 
 ## Product Tour
 
-The hero shot above already shows the full working flow:
+The hero shot above shows the full working flow:
 **Trend Radar → Token Scope → Wallet Scope → Usage**.
 
 <table>
   <tr>
-    <td width="58%" valign="top" align="center">
-      <img src="docs/screenshots/trenchscope-token-scope.png" alt="Token Scope — security posture, holder distribution, and Birdeye chart" width="88%" />
-      <br />
-      <strong>Token Scope</strong><br />
-      Token intel, holder concentration, and Birdeye chart context.
+    <td align="center" valign="top">
+      <a href="docs/screenshots/trenchscope-token-scope.png">
+        <img src="docs/screenshots/trenchscope-token-scope.png" alt="Token Scope" width="215" />
+      </a>
+      <br /><strong>Token Scope</strong><br />
+      <sub>Token intel, holder concentration, and Birdeye chart.</sub>
     </td>
-    <td width="42%" valign="top">
-      <table>
-        <tr>
-          <td valign="top" align="center">
-            <img src="docs/screenshots/trenchscope-wallet-scope.png" alt="Wallet Scope — portfolio value, PnL cards, win rate, and sorted holdings" width="92%" />
-            <br />
-            <strong>Wallet Scope</strong><br />
-            PnL, win rate, portfolio value, and top holdings.
-          </td>
-        </tr>
-        <tr>
-          <td valign="top" align="center">
-            <img src="docs/screenshots/trenchscope-watchlist.png" alt="Watchlist — tracked tokens and wallets with refresh controls" width="92%" />
-            <br />
-            <strong>Watchlist</strong><br />
-            Tracked tokens and wallets with refresh controls.
-          </td>
-        </tr>
-      </table>
+    <td align="center" valign="top">
+      <a href="docs/screenshots/trenchscope-wallet-scope.png">
+        <img src="docs/screenshots/trenchscope-wallet-scope.png" alt="Wallet Scope" width="215" />
+      </a>
+      <br /><strong>Wallet Scope</strong><br />
+      <sub>PnL, win rate, portfolio value, and top holdings.</sub>
+    </td>
+    <td align="center" valign="top">
+      <a href="docs/screenshots/trenchscope-watchlist.png">
+        <img src="docs/screenshots/trenchscope-watchlist.png" alt="Watchlist" width="215" />
+      </a>
+      <br /><strong>Watchlist</strong><br />
+      <sub>Tracked tokens and wallets with refresh controls.</sub>
     </td>
   </tr>
 </table>
