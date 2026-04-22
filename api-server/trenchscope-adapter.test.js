@@ -228,6 +228,7 @@ test('getToken returns thinly normalized token data and increments three endpoin
   const result = await adapter.getToken('mint-123');
 
   assert.equal(result.success, true);
+  assert.equal(result.data.address, 'mint-123');
   assert.deepEqual(result.data.overview, {
     name: 'Bonk',
     symbol: 'BONK',
@@ -274,6 +275,154 @@ test('getToken returns thinly normalized token data and increments three endpoin
     trending: 0,
   });
   assert.equal(upstreamCalls.length, 3);
+});
+
+test('getToken derives holder share and top 10 concentration from security and ui amounts', async () => {
+  const { createTrenchScopeAdapter } = require('./trenchscope-adapter');
+  const adapter = createTrenchScopeAdapter({
+    httpClient: {
+      get: async (url) => {
+        if (url.includes('/defi/token_overview')) {
+          return {
+            data: {
+              data: {
+                name: 'USD Coin',
+                symbol: 'USDC',
+                totalSupply: '1000',
+              },
+            },
+          };
+        }
+
+        if (url.includes('/defi/token_security')) {
+          return {
+            data: {
+              data: {
+                creatorAddress: 'creator-wallet',
+                freezeAuthority: 'freeze-wallet',
+                top10HolderPercent: '0.5',
+                totalSupply: '1000',
+              },
+            },
+          };
+        }
+
+        if (url.includes('/defi/v3/token/holder')) {
+          return {
+            data: {
+              data: {
+                items: [
+                  {
+                    owner: 'wallet-1',
+                    amount: '400000000',
+                    ui_amount: '400',
+                    decimals: 6,
+                  },
+                  {
+                    owner: 'wallet-2',
+                    amount: '100000000',
+                    ui_amount: '100',
+                    decimals: 6,
+                  },
+                ],
+              },
+            },
+          };
+        }
+
+        throw new Error(`Unexpected URL: ${url}`);
+      },
+    },
+    getApiKey: () => 'birdeye-key',
+    usageStore: {
+      recordAttempt: () => {},
+      getSummary: () => ({
+        totalCalls: 3,
+        endpoints: {
+          token_overview: 1,
+          token_security: 1,
+          holder_distribution: 1,
+        },
+      }),
+    },
+  });
+
+  const result = await adapter.getToken('mint-derive');
+
+  assert.equal(result.success, true);
+  assert.equal(result.data.holderDistribution.top10Percent, 50);
+  assert.deepEqual(result.data.holderDistribution.items, [
+    {
+      owner: 'wallet-1',
+      amount: 400,
+      percentage: 40,
+    },
+    {
+      owner: 'wallet-2',
+      amount: 100,
+      percentage: 10,
+    },
+  ]);
+  assert.equal(result.data.security.freezeAuthority, 'freeze-wallet');
+});
+
+test('getToken normalizes top 10 concentration fractions with floating point drift around one', async () => {
+  const { createTrenchScopeAdapter } = require('./trenchscope-adapter');
+  const adapter = createTrenchScopeAdapter({
+    httpClient: {
+      get: async (url) => {
+        if (url.includes('/defi/token_overview')) {
+          return {
+            data: {
+              data: {
+                name: 'PRCY',
+                symbol: 'PRCY',
+              },
+            },
+          };
+        }
+
+        if (url.includes('/defi/token_security')) {
+          return {
+            data: {
+              data: {
+                top10HolderPercent: '1.0000000000000002',
+              },
+            },
+          };
+        }
+
+        if (url.includes('/defi/v3/token/holder')) {
+          return {
+            data: {
+              data: {
+                items: [],
+              },
+            },
+          };
+        }
+
+        throw new Error(`Unexpected URL: ${url}`);
+      },
+    },
+    getApiKey: () => 'birdeye-key',
+    usageStore: {
+      recordAttempt: () => {},
+      getSummary: () => ({
+        totalCalls: 3,
+        endpoints: {
+          token_overview: 1,
+          token_security: 1,
+          holder_distribution: 1,
+        },
+      }),
+    },
+  });
+
+  const result = await adapter.getToken('mint-edge');
+
+  assert.equal(result.success, true);
+  assert.equal(result.data.holderDistribution.top10Percent, 100.00000000000003);
 });
 
 test('getToken keeps overview and holders when token security is permission-blocked', async () => {
@@ -565,6 +714,51 @@ test('getTrending maps Birdeye field names without inventing extra analytics', a
   });
 });
 
+test('getTrending maps snake_case Birdeye momentum fields from meme list', async () => {
+  const { createTrenchScopeAdapter } = require('./trenchscope-adapter');
+  const adapter = createTrenchScopeAdapter({
+    httpClient: {
+      get: async () => ({
+        data: {
+          data: {
+            items: [
+              {
+                address: 'mint-snake',
+                name: 'Irys',
+                symbol: 'IRYS',
+                price: '0.010388',
+                price_change_24h_percent: '12.5',
+                volume_24h_usd: '98765.43',
+                market_cap: '10388365.70',
+                logo_uri: 'https://img.example/irys.png',
+              },
+            ],
+          },
+        },
+      }),
+    },
+    getApiKey: () => 'birdeye-key',
+    getBaseUrl: () => OFFICIAL_BIRDEYE_BASE_URL,
+    usageStore: {
+      recordAttempt: () => {},
+      getSummary: () => ({ totalCalls: 1, endpoints: { trending: 1 } }),
+    },
+  });
+
+  const result = await adapter.getTrending();
+
+  assert.deepEqual(result.data.items[0], {
+    address: 'mint-snake',
+    name: 'Irys',
+    symbol: 'IRYS',
+    price: 0.010388,
+    change24hPercent: 12.5,
+    volume24hUsd: 98765.43,
+    marketCap: 10388365.70,
+    logoUri: 'https://img.example/irys.png',
+  });
+});
+
 test('getWallet returns API_KEY_MISSING before any upstream request', async () => {
   const { createTrenchScopeAdapter, missingKeyPayload } = require('./trenchscope-adapter');
   let httpClientCalled = false;
@@ -737,6 +931,154 @@ test('getWallet returns best-effort wallet data with null fallbacks', async () =
       params: { wallet: 'wallet-123' },
     },
   ]);
+});
+
+test('getWallet maps Birdeye pnl summary nested under wallet address', async () => {
+  const { createTrenchScopeAdapter } = require('./trenchscope-adapter');
+  const wallet = 'wallet-123';
+  const adapter = createTrenchScopeAdapter({
+    httpClient: {
+      get: async (url) => {
+        if (url.includes('/wallet/v2/current-net-worth')) {
+          return {
+            data: {
+              data: {
+                total_value: '4567.89',
+                items: [],
+              },
+            },
+          };
+        }
+
+        if (url.includes('/wallet/v2/pnl/summary')) {
+          return {
+            data: {
+              data: {
+                [wallet]: {
+                  pnl: {
+                    total_usd: '-2.63',
+                    realized_profit_usd: '0',
+                    unrealized_usd: '-2.63',
+                    win_percent: '66.7',
+                  },
+                },
+              },
+            },
+          };
+        }
+
+        throw new Error(`Unexpected URL: ${url}`);
+      },
+    },
+    getApiKey: () => 'birdeye-key',
+    getBaseUrl: () => OFFICIAL_BIRDEYE_BASE_URL,
+    usageStore: {
+      recordAttempt: () => {},
+      getSummary: () => ({
+        totalCalls: 2,
+        endpoints: {
+          wallet_pnl: 1,
+          wallet_portfolio: 1,
+        },
+      }),
+    },
+  });
+
+  const result = await adapter.getWallet(wallet);
+
+  assert.deepEqual(result, {
+    success: true,
+    data: {
+      wallet,
+      pnl: {
+        totalPnlUsd: -2.63,
+        winRate: 66.7,
+        realizedPnlUsd: 0,
+        unrealizedPnlUsd: -2.63,
+      },
+      portfolio: {
+        totalValueUsd: 4567.89,
+        itemCount: 0,
+        items: [],
+      },
+    },
+    meta: { source: 'birdeye' },
+  });
+});
+
+test('getWallet maps one-balance summary counts win_rate and pnl totals', async () => {
+  const { createTrenchScopeAdapter } = require('./trenchscope-adapter');
+  const wallet = 'wallet-123';
+  const adapter = createTrenchScopeAdapter({
+    httpClient: {
+      get: async (url) => {
+        if (url.includes('/wallet/v2/current-net-worth')) {
+          return {
+            data: {
+              data: {
+                total_value: '8327.55',
+                items: [],
+              },
+            },
+          };
+        }
+
+        if (url.includes('/wallet/v2/pnl/summary')) {
+          return {
+            data: {
+              data: {
+                summary: {
+                  counts: {
+                    win_rate: '0.2636268343815514',
+                  },
+                  pnl: {
+                    total_usd: '2868022.429053033',
+                    realized_profit_usd: '3055877.8995937877',
+                    unrealized_usd: '-187855.47054075473',
+                  },
+                },
+              },
+            },
+          };
+        }
+
+        throw new Error(`Unexpected URL: ${url}`);
+      },
+    },
+    getApiKey: () => 'birdeye-key',
+    getBaseUrl: () => OFFICIAL_BIRDEYE_BASE_URL,
+    usageStore: {
+      recordAttempt: () => {},
+      getSummary: () => ({
+        totalCalls: 2,
+        endpoints: {
+          wallet_pnl: 1,
+          wallet_portfolio: 1,
+        },
+      }),
+    },
+  });
+
+  const result = await adapter.getWallet(wallet);
+
+  assert.deepEqual(result, {
+    success: true,
+    data: {
+      wallet,
+      pnl: {
+        totalPnlUsd: 2868022.429053033,
+        winRate: 26.362683438155138,
+        realizedPnlUsd: 3055877.8995937877,
+        unrealizedPnlUsd: -187855.47054075473,
+      },
+      portfolio: {
+        totalValueUsd: 8327.55,
+        itemCount: 0,
+        items: [],
+      },
+    },
+    meta: { source: 'birdeye' },
+  });
 });
 
  test('getWallet waits for portfolio before requesting pnl summary', async () => {

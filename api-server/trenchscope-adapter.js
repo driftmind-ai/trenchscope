@@ -20,19 +20,57 @@ function toNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function normalizePercent(value) {
+  const parsed = toNumber(value);
+
+  if (parsed === null) {
+    return null;
+  }
+
+  return parsed >= 0 && parsed <= 1.000001 ? parsed * 100 : parsed;
+}
+
 function buildChartUrl(address) {
   return `https://birdeye.so/tv-widget/${address}?chain=solana&viewMode=pair&chartInterval=1&chartType=CANDLE&chartTimezone=America%2FLos_Angeles&chartLeftToolbar=show&theme=dark`;
 }
 
-function mapHolderItems(rawItems) {
+function toUiAmount(item) {
+  const uiAmount = toNumber(item?.ui_amount ?? item?.uiAmount);
+
+  if (uiAmount !== null) {
+    return uiAmount;
+  }
+
+  const amount = toNumber(item?.amount);
+  const decimals = toNumber(item?.decimals);
+
+  if (amount === null) {
+    return null;
+  }
+
+  if (decimals === null) {
+    return amount;
+  }
+
+  return amount / (10 ** decimals);
+}
+
+function mapHolderItems(rawItems, totalSupply = null) {
   if (!Array.isArray(rawItems)) {
     return [];
   }
 
   return rawItems.map((item) => ({
     owner: item?.owner ?? null,
-    amount: toNumber(item?.amount),
-    percentage: toNumber(item?.percentage),
+    amount: toUiAmount(item),
+    percentage: normalizePercent(
+      item?.percentage ??
+      item?.holderShare ??
+      item?.holder_share ??
+      (totalSupply && totalSupply > 0 && toUiAmount(item) !== null
+        ? (toUiAmount(item) / totalSupply) * 100
+        : null)
+    ),
   }));
 }
 
@@ -167,6 +205,14 @@ function createTrenchScopeAdapter({
     const holderDistribution = holderDistributionResult.data || {};
     const security = securityResult.ok ? securityResult.data || {} : null;
     const securityStatus = securityResult.error?.response?.status ?? null;
+    const normalizedTotalSupply = toNumber(
+      overview.totalSupply ??
+      overview.total_supply ??
+      overview.circulatingSupply ??
+      overview.circulating_supply ??
+      security?.totalSupply ??
+      security?.total_supply
+    );
     const warnings = securityResult.ok
       ? []
       : [
@@ -180,6 +226,7 @@ function createTrenchScopeAdapter({
     return {
       success: true,
       data: {
+        address,
         overview: {
           name: overview.name ?? null,
           symbol: overview.symbol ?? null,
@@ -193,25 +240,30 @@ function createTrenchScopeAdapter({
         security: security
           ? {
             creatorAddress: security.creatorAddress ?? null,
-            freezeAuthority: security.freezeAuthority ?? null,
-            mintAuthority: security.mintAuthority ?? null,
-            riskSummary: security.riskSummary ?? null,
+            freezeAuthority: security.freezeAuthority ?? security.freeze_authority ?? null,
+            mintAuthority: security.mintAuthority ?? security.mint_authority ?? null,
+            riskSummary: security.riskSummary ?? security.risk_summary ?? null,
             rawFlags: {
-              hasFreezeAuthority: security.freezeAuthority === true,
-              hasMintAuthority: security.mintAuthority === true,
+              hasFreezeAuthority: security.freezeAuthority === true || security.freezeAuthority != null || security.freeze_authority != null,
+              hasMintAuthority: security.mintAuthority === true || security.mintAuthority != null || security.mint_authority != null,
             },
           }
           : null,
         holderDistribution: {
-          top10Percent: toNumber(
+          top10Percent: normalizePercent(
             holderDistribution.top10Percent ??
             holderDistribution.top10HolderPercent ??
-            holderDistribution.top10_holder_percent
+            holderDistribution.top10_holder_percent ??
+            security?.top10HolderPercent ??
+            security?.top10_holder_percent ??
+            security?.top10UserPercent ??
+            security?.top10_user_percent
           ),
           items: mapHolderItems(
             holderDistribution.items ??
             holderDistribution.topHolders ??
-            holderDistribution.holders
+            holderDistribution.holders,
+            normalizedTotalSupply
           ),
         },
         chart: {
@@ -263,7 +315,30 @@ function createTrenchScopeAdapter({
       };
     }
 
-    const pnl = pnlResult.data || {};
+    const pnlRaw = pnlResult.data || {};
+    const hasDirectPnlFields = [
+      'totalPnlUsd',
+      'total_pnl_usd',
+      'total_usd',
+      'pnl',
+      'total_pnl',
+      'winRate',
+      'win_rate',
+      'winPercent',
+      'win_percent',
+      'realizedPnlUsd',
+      'realized_pnl_usd',
+      'realized_profit_usd',
+      'realized_profit',
+      'unrealizedPnlUsd',
+      'unrealized_pnl_usd',
+      'unrealized_usd',
+      'unrealized_profit',
+    ].some((key) => pnlRaw[key] != null);
+    const nestedPnlWallet = Object.values(pnlRaw).find((value) => value && typeof value === 'object');
+    const pnlWallet = pnlRaw[wallet] || (hasDirectPnlFields ? pnlRaw : nestedPnlWallet || {});
+    const pnl = pnlWallet.pnl || pnlWallet;
+    const pnlCounts = pnlWallet.counts && typeof pnlWallet.counts === 'object' ? pnlWallet.counts : pnl;
     const portfolio = portfolioResult.data || {};
     const items = Array.isArray(portfolio.items)
       ? portfolio.items.map((item) => ({
@@ -279,10 +354,10 @@ function createTrenchScopeAdapter({
       data: {
         wallet,
         pnl: {
-          totalPnlUsd: toNumber(pnl.totalPnlUsd ?? pnl.total_pnl_usd ?? pnl.pnl ?? pnl.total_pnl),
-          winRate: toNumber(pnl.winRate ?? pnl.win_rate ?? pnl.winPercent ?? pnl.win_percent),
-          realizedPnlUsd: toNumber(pnl.realizedPnlUsd ?? pnl.realized_pnl_usd ?? pnl.realized_profit),
-          unrealizedPnlUsd: toNumber(pnl.unrealizedPnlUsd ?? pnl.unrealized_pnl_usd ?? pnl.unrealized_profit),
+          totalPnlUsd: toNumber(pnl.totalPnlUsd ?? pnl.total_pnl_usd ?? pnl.total_usd ?? pnl.pnl ?? pnl.total_pnl),
+          winRate: normalizePercent(pnlCounts.winRate ?? pnlCounts.win_rate ?? pnlCounts.winPercent ?? pnlCounts.win_percent),
+          realizedPnlUsd: toNumber(pnl.realizedPnlUsd ?? pnl.realized_pnl_usd ?? pnl.realized_profit_usd ?? pnl.realized_profit),
+          unrealizedPnlUsd: toNumber(pnl.unrealizedPnlUsd ?? pnl.unrealized_pnl_usd ?? pnl.unrealized_usd ?? pnl.unrealized_profit),
         },
         portfolio: {
           totalValueUsd: toNumber(portfolio.totalValueUsd ?? portfolio.total_value_usd ?? portfolio.total_value ?? portfolio.totalValue),
@@ -323,8 +398,8 @@ function createTrenchScopeAdapter({
           name: item?.name ?? null,
           symbol: item?.symbol ?? null,
           price: toNumber(item?.price),
-          change24hPercent: toNumber(item?.change24hPercent ?? item?.price24hChangePercent ?? item?.price_24h_change_percent ?? item?.priceChange24hPercent),
-          volume24hUsd: toNumber(item?.volume24hUsd ?? item?.volume24hUSD ?? item?.volume_24h_usd ?? item?.v24hUSD),
+          change24hPercent: toNumber(item?.change24hPercent ?? item?.price24hChangePercent ?? item?.price_change_24h_percent ?? item?.price_24h_change_percent ?? item?.priceChange24hPercent ?? item?.price24hChange ?? item?.priceChange24h ?? item?.v24hChangePercent),
+          volume24hUsd: toNumber(item?.volume24hUsd ?? item?.volume24hUSD ?? item?.volume_24h_usd ?? item?.v24hUSD ?? item?.v24hUsd ?? item?.volume24h),
           marketCap: toNumber(item?.marketCap ?? item?.mc ?? item?.market_cap),
           logoUri: item?.logoUri ?? item?.logoURI ?? item?.logo_uri ?? null,
         })),
